@@ -235,8 +235,12 @@ int cip_build_read_request_callback(void *context, uint8_t *buffer, int buffer_c
         return rc;
     }
 
-    pdebug(DEBUG_DETAIL, "Read request packet:");
-    pdebug_dump_bytes(DEBUG_DETAIL, buffer + *payload_start, *payload_end - *payload_start);
+    if(buffer) {
+        pdebug(DEBUG_DETAIL, "Read request packet:");
+        pdebug_dump_bytes(DEBUG_DETAIL, buffer + *payload_start, *payload_end - *payload_start);
+    } else {
+        pdebug(DEBUG_DETAIL, "Dry run, buffer is NULL.");
+    }
 
     pdebug(DEBUG_DETAIL, "Done.");
 

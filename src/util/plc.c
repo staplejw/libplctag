@@ -147,7 +147,8 @@ struct plc_s {
     sock_p socket;
 
     /* our requests. */
-    struct plc_request_s *request_list;
+    struct plc_request_s *queued_requests;
+    struct plc_request_s *requests_in_flight;
     plc_request_id current_request_id;
 
     /* the protocol layers make up the stack underneath the PLC. */
@@ -164,8 +165,11 @@ struct plc_s {
     int payload_end;
     int payload_start;
 
-    /* model-specific data. */
+    /* model-specific data and functions. */
     void *context;
+    int (*check_fit)(plc_p plc, plc_request_p current_request, int *request_start, int *request_end, plc_request_id *req_id);
+    int (*build_request)(plc_p plc, plc_request_p current_request, int *request_start, int *request_end, plc_request_id *req_id);
+    int (*process_responses)(plc_p plc, plc_request_p *requests, int *request_start, int *request_end);
     void (*context_destructor)(plc_p plc, void *context);
 
     /* heartbeat timer */
@@ -192,7 +196,9 @@ static void reset_plc(plc_p plc);
 static void plc_rc_destroy(void *plc_arg);
 static void plc_state_runner(plc_p plc);
 static void plc_heartbeat(plc_p plc);
-
+static int plc_check_fit(plc_p plc, plc_request_p current_request, int *request_start, int *request_end, plc_request_id *req_id);
+static int plc_build_request(plc_p plc, plc_request_p current_request, int *request_start, int *request_end, plc_request_id *req_id);
+static int plc_process_responses(plc_p plc, plc_request_p *requests, int *request_start, int *request_end);
 
 /******** STATES *********/
 
@@ -217,6 +223,8 @@ static int state_layer_disconnect_response_ready(plc_p plc);
 
 /* terminal or error states */
 static int state_terminate(plc_p plc);
+
+
 
 
 
@@ -689,7 +697,7 @@ int plc_start_request(plc_p plc,
 
     critical_block(plc->plc_mutex) {
         /* is the request already on the list?  If not, add it at the end. */
-        plc_request_p *walker = &(plc->request_list);
+        plc_request_p *walker = &(plc->queued_requests);
 
         while(*walker && *walker != request) {
             walker = &((*walker)->next);
@@ -738,7 +746,7 @@ int plc_stop_request(plc_p plc, plc_request_p request)
 
     critical_block(plc->plc_mutex) {
         /* is the request already on the list?  If not, add it at the end. */
-        plc_request_p *walker = &(plc->request_list);
+        plc_request_p *walker = &(plc->queued_requests);
 
         while(*walker && *walker != request) {
             walker = &((*walker)->next);
@@ -872,10 +880,10 @@ void plc_rc_destroy(void *plc_arg)
 
     pdebug(DEBUG_INFO, "Cleaning up PLC %s request list.", plc->key);
 
-    if(plc->request_list) {
+    if(plc->queued_requests) {
         pdebug(DEBUG_WARN, "Request list is not empty!");
     }
-    plc->request_list = NULL;
+    plc->queued_requests = NULL;
 
     pdebug(DEBUG_INFO, "Freeing PLC %s data buffer.", plc->key);
 
@@ -971,6 +979,88 @@ void plc_heartbeat(plc_p plc)
 
 
 
+int plc_check_fit(plc_p plc, plc_request_p current_request, int *request_start, int *request_end, plc_request_id *req_id)
+{
+    int rc = PLCTAG_STATUS_OK;
+
+    pdebug(DEBUG_DETAIL, "Starting for PLC %s.", plc->key);
+
+    if(plc->check_fit) {
+        rc = plc->check_fit(plc, current_request, request_start, request_end, req_id);
+    } else {
+        pdebug(DEBUG_DETAIL, "No PLC-specific request fit checker.");
+
+        /* try to build it with a NULL data pointer. */
+        pdebug(DEBUG_DETAIL, "Checking request fit in buffer %d bytes long from byte %d to byte %d.", *request_end, *request_start, *request_end);
+
+        rc = current_request->build_request(current_request->context, NULL, *request_end, request_start, request_end, *req_id);
+    }
+
+    pdebug(DEBUG_DETAIL, "Done for PLC %s.", plc->key);
+
+    return rc;
+}
+
+
+int plc_build_request(plc_p plc, plc_request_p current_request, int *request_start, int *request_end, plc_request_id *req_id)
+{
+    int rc = PLCTAG_STATUS_OK;
+
+    pdebug(DEBUG_DETAIL, "Starting for PLC %s.", plc->key);
+
+    if(plc->build_request) {
+        rc = plc->build_request(plc, current_request, request_start, request_end, req_id);
+    } else {
+        pdebug(DEBUG_DETAIL, "No PLC-specific request builder.");
+
+        /* try to build it with a NULL data pointer. */
+        pdebug(DEBUG_DETAIL, "Building request in buffer %d bytes long from byte %d to byte %d.", *request_end, *request_start, *request_end);
+
+        rc = current_request->build_request(current_request->context, plc->data, *request_end, request_start, request_end, *req_id);
+    }
+
+    pdebug(DEBUG_DETAIL, "Done for PLC %s.", plc->key);
+
+    return rc;
+}
+
+
+
+
+int plc_process_responses(plc_p plc, plc_request_p *requests, int *request_start, int *request_end)
+{
+    int rc = PLCTAG_STATUS_OK;
+
+    pdebug(DEBUG_DETAIL, "Starting for PLC %s.", plc->key);
+
+    if(plc->process_responses) {
+        rc = plc->process_responses(plc, requests, request_start, request_end);
+    } else {
+        plc_request_p current_request = *requests;
+
+        if(!current_request) {
+            pdebug(DEBUG_INFO, "All responses missing, perhaps aborted.");
+            return PLCTAG_STATUS_OK;
+        }
+
+        pdebug(DEBUG_DETAIL, "No PLC-specific function to process responses, assuming one response.");
+
+        /* try to build it with a NULL data pointer. */
+        pdebug(DEBUG_DETAIL, "Building request in buffer %d bytes long from byte %d to byte %d.", *request_end, *request_start, *request_end);
+
+        rc = current_request->process_response(current_request->context, plc->data, *request_end, request_start, request_end, 0);
+
+        /* clear up the list. */
+        *requests = NULL;
+    }
+
+    pdebug(DEBUG_DETAIL, "Done for PLC %s.", plc->key);
+
+    return rc;
+}
+
+
+
 /* dispatch states. */
 
 
@@ -1012,7 +1102,7 @@ int state_dispatch_requests(plc_p plc)
         }
 
         /* are there requests queued? */
-        if(plc->request_list) {
+        if(plc->queued_requests) {
             /* are we connected? */
             if(plc->is_connected == false) {
                 NEXT_STATE(state_start_connect);
@@ -1049,8 +1139,15 @@ int state_reserve_space_for_tag_request(plc_p plc)
     int data_start = 0;
     int data_end = 0;
     plc_request_id req_id = 0;
+    plc_request_p current_request = plc->queued_requests;
 
     pdebug(DEBUG_INFO, "Starting for PLC %s.", plc->key);
+
+    if(!current_request) {
+        pdebug(DEBUG_INFO, "No request to process.");
+        NEXT_STATE(state_dispatch_requests);
+        return PLCTAG_STATUS_PENDING;
+    }
 
     do {
         /* reserve space in the layers for a request. Bottom up.*/
@@ -1060,13 +1157,40 @@ int state_reserve_space_for_tag_request(plc_p plc)
 
         DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK, "Error %s while preparing layers for tag request for PLC %s!", plc_tag_decode_error(rc), plc->key);
 
-        /* payload boundaries. */
+        /* this is where the plc-specific payload starts. */
         plc->payload_start = data_start;
+
+        /* add requests to the list as long as they fit. */
+        while(current_request &&  ((rc = plc_check_fit(plc, current_request, &data_start, &data_end, &req_id)) == PLCTAG_STATUS_OK)) {
+            plc_request_p *in_flight_walker = &(plc->requests_in_flight);
+
+            while(*in_flight_walker) {
+                in_flight_walker = &((*in_flight_walker)->next);
+            }
+
+            /* unlink the request and put it on the end of in-flight queue. */
+            plc->queued_requests = plc->queued_requests->next;
+            current_request->next = NULL;
+
+            *in_flight_walker = current_request;
+
+            /* point to the next request. */
+            current_request = plc->queued_requests;
+        }
+
+        DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK && rc != PLCTAG_ERR_BUSY, "Error %s while adding requests to the in-flight queue for PLC %s!", plc_tag_decode_error(rc), plc->key);
+
+        if(rc == PLCTAG_ERR_BUSY) {
+            pdebug(DEBUG_DETAIL, "Unable to add more requests to the in-flight queue.");
+            rc = PLCTAG_STATUS_OK;
+        }
+
+        /* payload boundaries. */
         plc->payload_end = data_end;
         plc->current_request_id = req_id;
 
         /* set up request */
-        // plc->current_request = plc->request_list;
+        // plc->current_request = plc->queued_requests;
         // plc->current_request->req_id = req_id;
 
         NEXT_STATE(state_build_tag_request);
@@ -1085,96 +1209,48 @@ int state_build_tag_request(plc_p plc)
     int rc = PLCTAG_STATUS_OK;
     int data_start = plc->payload_start;
     int data_end = plc->payload_end;
-    int old_data_end = data_end;
+    // int old_data_end = data_end;
     plc_request_id req_id = plc->current_request_id;
-    struct plc_request_s *current_request = plc->request_list;
-    bool done = true;
-    bool first_try = true;
+    struct plc_request_s *current_request = plc->requests_in_flight;
+    // bool first_try = true;
 
     pdebug(DEBUG_INFO, "Starting for PLC %s.", plc->key);
 
     do {
         CHECK_TERMINATION();
 
-        /* repeat for all requests possible. */
+        pdebug(DEBUG_INFO, "Processing request %" REQ_ID_FMT ".", current_request->req_id);
 
-        if(!current_request) {
-            pdebug(DEBUG_INFO, "Request removed from the queue before we got to it!");
-
-            plc->state_func = state_dispatch_requests;
-            rc = PLCTAG_STATUS_PENDING;
-            break;
+        while(current_request &&  ((rc = plc_build_request(plc, current_request, &data_start, &data_end, &req_id)) == PLCTAG_STATUS_OK)) {
+            current_request = current_request->next;
         }
 
-        pdebug(DEBUG_INFO, "Processing request %" REQ_ID_FMT ".", req_id);
+        DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK , "Error %s while building request(s) from the in-flight queue for PLC %s!", plc_tag_decode_error(rc), plc->key);
 
-        /* build the tag request on top of the reserved space. */
-        rc = current_request->build_request(current_request->context, plc->data, plc->data_capacity, &data_start, &data_end, req_id);
-
-        DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK && rc != PLCTAG_ERR_TOO_SMALL, "Error %s building tag request for PLC %s!", plc_tag_decode_error(rc), plc->key);
-
-        /* was there enough space? */
-        if(rc == PLCTAG_ERR_TOO_SMALL) {
-            DISCONNECT_ON_ERROR(first_try == true, "Insufficient space for even one new request!");
-
-            pdebug(DEBUG_INFO, "Insufficient space to build for new request %" REQ_ID_FMT " for PLC %s.", req_id, plc->key);
-
-            /* signal that we are unable to continue. */
-            data_end = old_data_end;
-        } else {
-            pdebug(DEBUG_INFO, "Filling in layers for new request %" REQ_ID_FMT " for PLC %s.", req_id, plc->key);
-            old_data_end = data_end;
-        }
-
-        first_try = false;
-
-        /* set the request ID to match later. */
-        current_request->req_id = req_id;
-
-        /* fix up the layers. */
+        /* now fix up the layers, top down. */
         for(int index = plc->num_layers - 1; index >= 0 && rc == PLCTAG_STATUS_OK; index--) {
             rc = plc->layers[index].fix_up_layer(plc->layers[index].context, plc->data, plc->data_capacity, &data_start, &data_end, &req_id);
         }
 
-        DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK && rc != PLCTAG_STATUS_PENDING, "Error %s while building request layers for PLC %s!", plc_tag_decode_error(rc), plc->key);
+        DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK, "Error %s while fixing up request layers for PLC %s!", plc_tag_decode_error(rc), plc->key);
 
-        /* if there was more space, see if we can find more requests. */
-        if(rc == PLCTAG_STATUS_OK) {
-            pdebug(DEBUG_INFO, "Done setting up layers and no further packets allowed for PLC %s", plc->key);
-            done = true;
-        } else { /* rc == PLCTAG_STATUS_PENDING */
-            /* check if we can find another request */
-            current_request = current_request->next;
+        /* check before we commit to sending a packet. */
+        CHECK_TERMINATION();
 
-            /* check to see if we have a valid request. */
-            if(current_request) {
-                pdebug(DEBUG_INFO, "Another request is possible to pack for PLC %s.", plc->key);
-                done = false;
-            } else {
-                pdebug(DEBUG_INFO, "Ran out of requests to handle.");
-                data_end = old_data_end;
-                done = true;
-            }
-        }
+        pdebug(DEBUG_INFO, "Sending packet for PLC %s:", plc->key);
+        pdebug_dump_bytes(DEBUG_INFO, plc->data, data_end);
 
-        if(done == true) {
-            /* check before we commit to sending a packet. */
-            CHECK_TERMINATION();
+        plc->payload_end = data_end;
 
-            pdebug(DEBUG_INFO, "Sending packet for PLC %s.", plc->key);
+        NEXT_STATE(state_tag_request_sent);
 
-            plc->payload_end = data_end;
+        rc = socket_callback_when_write_done(plc->socket, (void(*)(void*))plc_state_runner, plc, plc->data, &(plc->payload_end));
 
-            NEXT_STATE(state_tag_request_sent);
+        DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK, "Error %s while setting up write completion callback for PLC %s!", plc_tag_decode_error(rc), plc->key);
 
-            rc = socket_callback_when_write_done(plc->socket, (void(*)(void*))plc_state_runner, plc, plc->data, &(plc->payload_end));
-
-            DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK, "Error %s while setting up write completion callback for PLC %s!", plc_tag_decode_error(rc), plc->key);
-
-            rc = PLCTAG_STATUS_OK;
-            break;
-        }
-    } while(!done);
+        rc = PLCTAG_STATUS_OK;
+        break;
+    } while(0);
 
     pdebug(DEBUG_INFO, "Done for PLC %s.", plc->key);
 
@@ -1235,7 +1311,7 @@ int state_tag_response_ready(plc_p plc)
     int data_start = 0;
     int data_end = plc->payload_end;
     plc_request_id req_id = 0;
-    bool done = true;
+    // bool done = true;
 
     pdebug(DEBUG_DETAIL, "Starting for PLC %s.", plc->key);
 
@@ -1252,17 +1328,9 @@ int state_tag_response_ready(plc_p plc)
         // pdebug(DEBUG_DETAIL, "Got possible full response:");
         // pdebug_dump_bytes(DEBUG_DETAIL, plc->data, data_end);
 
-        /*
-         * If a layer returns PLCTAG_STATUS_PENDING, then we know that there are multiple
-         * sub-packets remaining within it and we need to continue.
-         */
-
+        /* process the layers bottom to top.  */
         for(int index=0; index < plc->num_layers && rc == PLCTAG_STATUS_OK; index++) {
             rc = plc->layers[index].process_response(plc->layers[index].context, plc->data, plc->data_capacity, &data_start, &data_end, &req_id);
-            if(rc == PLCTAG_STATUS_PENDING) {
-                done = false;
-                rc = PLCTAG_STATUS_OK;
-            }
         }
 
         DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK && rc != PLCTAG_ERR_PARTIAL, "Got error %s processing layers, restarting stack for PLC %s!", plc_tag_decode_error(rc), plc->key)
@@ -1282,48 +1350,58 @@ int state_tag_response_ready(plc_p plc)
             break;
         }
 
-        /* if we got here, then we have a valid response.
-         * The data_start and data_end bracket the payload for the tag.
-         *
-         * req_id is the internal ID for the request we want to match.
-         */
+        rc = plc_process_responses(plc, &(plc->requests_in_flight), &data_start, &data_end);
 
-        /* are there any requests and is it the right one? */
-        if(plc->request_list) {
-            if(req_id == plc->request_list->req_id) {
-                plc_request_p request = plc->request_list;
+        DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK, "Got error %s processing layers, restarting stack for PLC %s!", plc_tag_decode_error(rc), plc->key)
 
-                /* remove the request from the queue. We have a response. */
-                plc->request_list = plc->request_list->next;
-                request->next = NULL;
 
-                // data_start = plc->payload_start;
-                // data_end = plc->payload_end;
+        // /* if we got here, then we have a valid response.
+        //  * The data_start and data_end bracket the payload for the tag.
+        //  *
+        //  * req_id is the internal ID for the request we want to match.
+        //  */
 
-                pdebug(DEBUG_DETAIL, "Attempting to process request %" REQ_ID_FMT " for PLC %s.", request->req_id, plc->key);
+        // /* are there any requests and is it the right one? */
+        // if(plc->requests_in_flight) {
+        //     if(req_id == plc->requests_in_flight->req_id) {
+        //         plc_request_p request = plc->requests_in_flight;
 
-                // pdebug(DEBUG_DETAIL, "Got possible response:");
-                // pdebug_dump_bytes(DEBUG_DETAIL, plc->data + data_start, data_end - data_start);
+        //         /* remove the request from the queue. We have a response. */
+        //         plc->requests_in_flight = plc->requests_in_flight->next;
+        //         request->next = NULL;
 
-                rc = request->process_response(request->context, plc->data, plc->data_capacity, &data_start, &data_end, request->req_id);
+        //         // data_start = plc->payload_start;
+        //         // data_end = plc->payload_end;
 
-                DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK, "Error %s processing request for tag for PLC %s!", plc_tag_decode_error(rc), plc->key);
-            } else {
-                /* nope */
-                pdebug(DEBUG_INFO, "Skipping response for aborted request %" REQ_ID_FMT " for PLC %s.", plc->current_request_id, plc->key);
-            }
-        } else {
-            pdebug(DEBUG_INFO, "No requests left to process for PLC %s.", plc->key);
-            done = true;
-        }
+        //         pdebug(DEBUG_DETAIL, "Attempting to process request %" REQ_ID_FMT " for PLC %s.", request->req_id, plc->key);
 
-        if(done == true) {
+        //         // pdebug(DEBUG_DETAIL, "Got possible response:");
+        //         // pdebug_dump_bytes(DEBUG_DETAIL, plc->data + data_start, data_end - data_start);
+
+        //         rc = request->process_response(request->context, plc->data, plc->data_capacity, &data_start, &data_end, request->req_id);
+
+        //         DISCONNECT_ON_ERROR(rc != PLCTAG_STATUS_OK, "Error %s processing request for tag for PLC %s!", plc_tag_decode_error(rc), plc->key);
+        //     } else {
+        //         /* nope */
+        //         pdebug(DEBUG_INFO, "Skipping response for aborted request %" REQ_ID_FMT " for PLC %s.", plc->current_request_id, plc->key);
+        //     }
+        // } else {
+        //     pdebug(DEBUG_INFO, "No requests left to process for PLC %s.", plc->key);
+        //     done = true;
+        // }
+
+        // if(done == true) {
             pdebug(DEBUG_INFO, "Finished processing response for PLC %s.", plc->key);
             NEXT_STATE(state_dispatch_requests);
             rc = PLCTAG_STATUS_PENDING;
             break;
-        }
-    } while(!done);
+        // }
+    } while(0);
+
+    if(rc != PLCTAG_STATUS_OK) {
+        pdebug(DEBUG_WARN, "Error %s processing PLC %s response!", plc_tag_decode_error(rc), plc->key);
+        return rc;
+    }
 
     pdebug(DEBUG_DETAIL, "Done for PLC %s.", plc->key);
 
