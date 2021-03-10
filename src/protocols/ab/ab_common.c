@@ -865,8 +865,10 @@ int ab_get_int_attrib(plc_tag_p raw_tag, const char *attrib_name, int default_va
     /* match the attribute. */
     if(str_cmp_i(attrib_name, "elem_size") == 0) {
         res = tag->elem_size;
-    } else if(str_cmp_i(attrib_name, "elem_count") == 0) {
+    } else if (str_cmp_i(attrib_name, "elem_count") == 0) {
         res = tag->elem_count;
+    } else if (str_cmp_i(attrib_name, "elem_type") == 0){
+        res = tag->elem_type;
     } else {
         pdebug(DEBUG_WARN, "Unsupported attribute name \"%s\"!", attrib_name);
         tag->status = PLCTAG_ERR_UNSUPPORTED;

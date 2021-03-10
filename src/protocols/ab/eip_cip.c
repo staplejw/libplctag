@@ -1607,6 +1607,38 @@ static int check_read_status_connected(ab_tag_p tag)
                 tag->size = (int)payload_size + tag->offset;
                 tag->elem_size = tag->size / tag->elem_count;
 
+                if (tag->elem_type == 0) {
+                    switch (tag->encoded_type_info[0]) {
+                    case 0xC1:
+                        tag->elem_type = AB_TYPE_BOOL;
+                        break;
+                    
+                    case 0xC2:
+                        tag->elem_type = AB_TYPE_INT8;
+                        break;
+
+                    case 0xC3:
+                        tag->elem_type = AB_TYPE_INT16;
+                        break;
+
+                    case 0xC4:
+                        tag->elem_type = AB_TYPE_INT32;
+                        break;
+
+                    case 0xCA:
+                        tag->elem_type = AB_TYPE_FLOAT32;
+                        break;
+
+                    case 0xD3:
+                        tag->elem_type = AB_TYPE_BOOL_ARRAY;
+                        break;
+                    
+                    case 0xC5:
+                        tag->elem_type = AB_TYPE_INT64;
+                        break;
+                    }
+                }
+
                 pdebug(DEBUG_DETAIL, "Increasing tag buffer size to %d bytes.", tag->size);
 
                 tag->data = (uint8_t*)mem_realloc(tag->data, tag->size);
