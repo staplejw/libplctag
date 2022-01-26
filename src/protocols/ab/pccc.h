@@ -40,14 +40,43 @@
 #include <lib/tag.h>
 #include <platform.h>
 
-
-typedef enum { PCCC_FILE_UNKNOWN, PCCC_FILE_ASCII, PCCC_FILE_BIT, PCCC_FILE_BLOCK_TRANSFER, PCCC_FILE_COUNTER,
-               PCCC_FILE_BCD, PCCC_FILE_FLOAT, PCCC_FILE_INPUT, PCCC_FILE_LONG_INT, PCCC_FILE_MESSAGE, PCCC_FILE_INT, PCCC_FILE_OUTPUT,
-               PCCC_FILE_PID, PCCC_FILE_CONTROL, PCCC_FILE_STATUS, PCCC_FILE_SFC, PCCC_FILE_STRING, PCCC_FILE_TIMER
+typedef enum {
+               PCCC_FILE_UNKNOWN        = 0x00, /* UNKNOWN! */
+               PCCC_FILE_ASCII          = 0x8e,
+               PCCC_FILE_BCD            = 0x8f,
+               PCCC_FILE_BIT            = 0x85,
+               PCCC_FILE_BLOCK_TRANSFER = 0x00, /* UNKNOWN! */
+               PCCC_FILE_CONTROL        = 0x88,
+               PCCC_FILE_COUNTER        = 0x87,
+               PCCC_FILE_FLOAT          = 0x8a,
+               PCCC_FILE_INPUT          = 0x8c,
+               PCCC_FILE_INT            = 0x89,
+               PCCC_FILE_LONG_INT       = 0x91,
+               PCCC_FILE_MESSAGE        = 0x92,
+               PCCC_FILE_OUTPUT         = 0x8b,
+               PCCC_FILE_PID            = 0x93,
+               PCCC_FILE_SFC            = 0x00, /* UNKNOWN! */
+               PCCC_FILE_STATUS         = 0x84,
+               PCCC_FILE_STRING         = 0x8d,
+               PCCC_FILE_TIMER          = 0x86
              } pccc_file_t;
 
-extern int plc5_encode_tag_name(uint8_t *data, int *size, pccc_file_t *file_type, const char *name, int max_tag_name_size);
-extern int slc_encode_tag_name(uint8_t *data, int *size, pccc_file_t *file_type, const char *name, int max_tag_name_size);
+typedef struct {
+    pccc_file_t file_type;
+    int file;
+    int element;
+    int sub_element;
+    uint8_t is_bit;
+    uint8_t bit;
+    int element_size_bytes;
+} pccc_addr_t;
+
+extern int parse_pccc_logical_address(const char *file_address, pccc_addr_t *address);
+extern int plc5_encode_address(uint8_t *data, int *size, int buf_size, pccc_addr_t *address);
+extern int slc_encode_address(uint8_t *data, int *size, int buf_size, pccc_addr_t *address);
+
+//extern int plc5_encode_tag_name(uint8_t *data, int *size, pccc_file_t *file_type, const char *name, int max_tag_name_size);
+//extern int slc_encode_tag_name(uint8_t *data, int *size, pccc_file_t *file_type, const char *name, int max_tag_name_size);
 extern uint8_t pccc_calculate_bcc(uint8_t *data,int size);
 extern uint16_t pccc_calculate_crc16(uint8_t *data, int size);
 extern const char *pccc_decode_error(uint8_t *error_ptr);

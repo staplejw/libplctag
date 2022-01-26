@@ -43,6 +43,7 @@
 #include <ab/cip.h>
 #include <ab/defs.h>
 #include <ab/eip_cip.h>
+#include <ab/eip_cip_special.h>
 #include <ab/eip_lgx_pccc.h>
 #include <ab/eip_plc5_pccc.h>
 #include <ab/eip_plc5_dhp.h>
@@ -102,6 +103,7 @@ struct tag_vtable_t default_vtable = {
     default_status,
     default_tickler,
     default_write,
+    (tag_vtable_func)NULL, /* this is not portable! */
 
     /* attribute accessors */
     ab_get_int_attrib,
@@ -190,6 +192,14 @@ plc_tag_p ab_tag_create(attr attribs)
 
     tag->vtable = &default_vtable;
 
+    /* set up the generic parts. */
+    rc = plc_tag_generic_init_tag((plc_tag_p)tag, attribs);
+    if(rc != PLCTAG_STATUS_OK) {
+        pdebug(DEBUG_WARN, "Unable to initialize generic tag parts!");
+        rc_dec(tag);
+        return (plc_tag_p)NULL;
+    }
+
     /*
      * check the CPU type.
      *
@@ -231,7 +241,7 @@ plc_tag_p ab_tag_create(attr attribs)
         tag->allow_packing = attr_get_int(attribs, "allow_packing", 1);
         break;
 
-    case AB_PLC_MLGX800:
+    case AB_PLC_MICRO800:
         /* we must use connected messaging here. */
         pdebug(DEBUG_DETAIL, "Micro800 needs connected messaging.");
         tag->use_connected_msg = 1;
@@ -242,7 +252,12 @@ plc_tag_p ab_tag_create(attr attribs)
 
     case AB_PLC_OMRON_NJNX:
         tag->use_connected_msg = 1;
-        tag->allow_packing = 0;
+
+        /*
+         * Default packing to off.  Omron requires the client to do the calculation of
+         * whether the results will fit or not.
+         */
+        tag->allow_packing = attr_get_int(attribs, "allow_packing", 0);
         break;
 
     default:
@@ -274,7 +289,7 @@ plc_tag_p ab_tag_create(attr attribs)
     /* get the tag data type, or try. */
     rc = get_tag_data_type(tag, attribs);
     if(rc != PLCTAG_STATUS_OK) {
-        pdebug(DEBUG_WARN, "Error getting tag element data type %s!", plc_tag_decode_error(rc));
+        pdebug(DEBUG_WARN, "Error %s getting tag element data type or handling special tag!", plc_tag_decode_error(rc));
         tag->status = (int8_t)rc;
         return (plc_tag_p)tag;
     }
@@ -344,31 +359,46 @@ plc_tag_p ab_tag_create(attr attribs)
             return (plc_tag_p)tag;
         }
 
-        if(!tag->tag_list) {
+        /* if we did not fill in the byte order elsewhere, fill it in now. */
+        if(!tag->byte_order) {
+            pdebug(DEBUG_DETAIL, "Using default Logix byte order.");
             tag->byte_order = &logix_tag_byte_order;
-        } else {
-            tag->byte_order = &logix_tag_listing_byte_order;
+        }
+
+        /* if this was not filled in elsewhere default to Logix */
+        if(tag->vtable == &default_vtable || !tag->vtable) {
+            pdebug(DEBUG_DETAIL, "Setting default Logix vtable.");
+            tag->vtable = &eip_cip_vtable;
         }
 
         /* default to requiring a connection. */
         tag->use_connected_msg = attr_get_int(attribs,"use_connected_msg", 1);
         tag->allow_packing = attr_get_int(attribs, "allow_packing", 1);
-        tag->vtable = &eip_cip_vtable;
 
         break;
 
-    case AB_PLC_MLGX800:
+    case AB_PLC_MICRO800:
         pdebug(DEBUG_DETAIL, "Setting up Micro8X0 tag.");
 
         if(path || str_length(path)) {
             pdebug(DEBUG_WARN, "A path is not supported for this PLC type.");
         }
 
-        tag->byte_order = &logix_tag_byte_order;
+        /* if we did not fill in the byte order elsewhere, fill it in now. */
+        if(!tag->byte_order) {
+            pdebug(DEBUG_DETAIL, "Using default Micro8x0 byte order.");
+            tag->byte_order = &logix_tag_byte_order;
+        }
+
+        /* if this was not filled in elsewhere default to generic *Logix */
+        if(tag->vtable == &default_vtable || !tag->vtable) {
+            pdebug(DEBUG_DETAIL, "Setting default Logix vtable.");
+            tag->vtable = &eip_cip_vtable;
+        }
 
         tag->use_connected_msg = 1;
         tag->allow_packing = 0;
-        tag->vtable = &eip_cip_vtable;
+
         break;
 
     case AB_PLC_OMRON_NJNX:
@@ -380,11 +410,21 @@ plc_tag_p ab_tag_create(attr attribs)
             return (plc_tag_p)tag;
         }
 
-        tag->byte_order = &logix_tag_byte_order;
+        /* if we did not fill in the byte order elsewhere, fill it in now. */
+        if(!tag->byte_order) {
+            pdebug(DEBUG_DETAIL, "Using default Omron byte order.");
+            tag->byte_order = &omron_njnx_tag_byte_order;
+        }
+
+        /* if this was not filled in elsewhere default to generic *Logix */
+        if(tag->vtable == &default_vtable || !tag->vtable) {
+            pdebug(DEBUG_DETAIL, "Setting default Logix vtable.");
+            tag->vtable = &eip_cip_vtable;
+        }
 
         tag->use_connected_msg = 1;
-        tag->allow_packing = 0;
-        tag->vtable = &eip_cip_vtable;
+        tag->allow_packing = attr_get_int(attribs, "allow_packing", 0);
+
         break;
 
     default:
@@ -406,11 +446,11 @@ plc_tag_p ab_tag_create(attr attribs)
             pdebug(DEBUG_WARN,"Attribute elem_count should be 1!");
         }
 
-        /* from here is the same as a AB_PLC_MLGX800. */
+        /* from here is the same as a AB_PLC_MICRO800. */
 
         /* fall through */
     case AB_PLC_LGX:
-    case AB_PLC_MLGX800:
+    case AB_PLC_MICRO800:
         /* fill this in when we read the tag. */
         //tag->elem_size = 0;
         tag->size = 0;
@@ -448,20 +488,25 @@ plc_tag_p ab_tag_create(attr attribs)
      * check the tag name, this is protocol specific.
      */
 
-    if(!tag->tag_list && check_tag_name(tag, attr_get_str(attribs,"name",NULL)) != PLCTAG_STATUS_OK) {
+    if(!tag->special_tag && check_tag_name(tag, attr_get_str(attribs,"name",NULL)) != PLCTAG_STATUS_OK) {
         pdebug(DEBUG_INFO,"Bad tag name!");
         tag->status = PLCTAG_ERR_BAD_PARAM;
         return (plc_tag_p)tag;
     }
 
-    /* trigger the first read. */
-    tag->first_read = 1;
-
     /* kick off a read to get the tag type and size. */
-    if(tag->vtable->read) {
+    if(!tag->special_tag && tag->vtable->read) {
+        /* trigger the first read. */
+        pdebug(DEBUG_DETAIL, "Kicking off initial read.");
+
+        tag->first_read = 1;
         tag->read_in_flight = 1;
         tag->vtable->read((plc_tag_p)tag);
+    } else {
+        pdebug(DEBUG_DETAIL, "Not kicking off initial read: tag is special or does not have read function.");
     }
+
+    pdebug(DEBUG_DETAIL, "Using vtable %p.", tag->vtable);
 
     pdebug(DEBUG_INFO,"Done.");
 
@@ -475,8 +520,10 @@ plc_tag_p ab_tag_create(attr attribs)
 
 int get_tag_data_type(ab_tag_p tag, attr attribs)
 {
+    int rc = PLCTAG_STATUS_OK;
     const char *elem_type = NULL;
     const char *tag_name = NULL;
+    pccc_addr_t file_addr =  {0};
 
     pdebug(DEBUG_DETAIL, "Starting.");
 
@@ -487,92 +534,18 @@ int get_tag_data_type(ab_tag_p tag, attr attribs)
     case AB_PLC_MLGX:
         tag_name = attr_get_str(attribs,"name", NULL);
 
-        /* the first two characters are the important ones. */
-        if(tag_name && str_length(tag_name) >= 2) {
-            switch(tag_name[0]) {
-            case 'b':
-            case 'B':
-                /*bit*/
-                pdebug(DEBUG_DETAIL,"Found tag element type of bit.");
-                tag->elem_size=1;
-                tag->elem_type = AB_TYPE_BOOL;
-                break;
-
-            case 'c':
-            case 'C':
-                /* counter */
-                pdebug(DEBUG_DETAIL,"Found tag element type of counter.");
-                tag->elem_size=6;
-                tag->elem_type = AB_TYPE_COUNTER;
-                break;
-
-            case 'f':
-            case 'F':
-                /* 32-bit float */
-                pdebug(DEBUG_DETAIL,"Found tag element type of float.");
-                tag->elem_size=4;
-                tag->elem_type = AB_TYPE_FLOAT32;
-                break;
-
-            case 'l':
-            case 'L':
-                /* 32-bit integer */
-                pdebug(DEBUG_DETAIL,"Found tag element type of long int.");
-                tag->elem_size=4;
-                tag->elem_type = AB_TYPE_INT32;
-                break;
-
-            case 'n':
-            case 'N':
-                /* 16-bit integer */
-                pdebug(DEBUG_DETAIL,"Found tag element type of 16-bit integer.");
-                tag->elem_size=2;
-                tag->elem_type = AB_TYPE_INT16;
-                break;
-
-            case 'r':
-            case 'R':
-                /* control */
-                pdebug(DEBUG_DETAIL,"Found tag element type of control.");
-                tag->elem_size=6;
-                tag->elem_type = AB_TYPE_CONTROL;
-                break;
-
-            case 's':
-            case 'S':
-                /* Status or String */
-                if(tag_name[1] == 't' || tag_name[1] == 'T') {
-                    /* string */
-                    pdebug(DEBUG_DETAIL,"Found tag element type of string.");
-                    tag->elem_size = 84;
-                    tag->elem_type = AB_TYPE_STRING;
-                } else {
-                    /* status */
-                    pdebug(DEBUG_DETAIL,"Found tag element type of status word.");
-                    tag->elem_size = 2;
-                    tag->elem_type = AB_TYPE_INT16;
-                }
-                break;
-
-            case 't':
-            case 'T':
-                /* timer */
-                pdebug(DEBUG_DETAIL,"Found tag element type of timer.");
-                tag->elem_size=6;
-                tag->elem_type = AB_TYPE_TIMER;
-                break;
-
-            default:
-                pdebug(DEBUG_DETAIL,"Unknown tag type for tag %s", tag_name);
-                return PLCTAG_ERR_UNSUPPORTED;
-                break;
-            }
+        rc = parse_pccc_logical_address(tag_name, &file_addr);
+        if(rc != PLCTAG_STATUS_OK) {
+            pdebug(DEBUG_WARN, "Unable to parse data file %s!", tag_name);
+            return rc;
         }
+
+        tag->elem_size = file_addr.element_size_bytes;
 
         break;
 
     case AB_PLC_LGX:
-    case AB_PLC_MLGX800:
+    case AB_PLC_MICRO800:
     case AB_PLC_OMRON_NJNX:
         /* look for the elem_type attribute. */
         elem_type = attr_get_str(attribs, "elem_type", NULL);
@@ -598,7 +571,7 @@ int get_tag_data_type(ab_tag_p tag, attr attribs)
                 tag->elem_size = 1;
                 tag->elem_type = AB_TYPE_BOOL;
             } else if(str_cmp_i(elem_type,"bool array") == 0) {
-                pdebug(DEBUG_DETAIL,"Found tag element type of bit array.");
+                pdebug(DEBUG_DETAIL,"Found tag element type of bool array.");
                 tag->elem_size = 4;
                 tag->elem_type = AB_TYPE_BOOL_ARRAY;
             } else if(str_cmp_i(elem_type,"real") == 0) {
@@ -615,7 +588,7 @@ int get_tag_data_type(ab_tag_p tag, attr attribs)
                 tag->elem_type = AB_TYPE_STRING;
             } else if(str_cmp_i(elem_type,"short string") == 0) {
                 pdebug(DEBUG_DETAIL,"Found tag element type of short string.");
-                tag->elem_size = 256; /* FIXME */
+                tag->elem_size = 256; /* TODO - find the real length */
                 tag->elem_type = AB_TYPE_SHORT_STRING;
             } else {
                 pdebug(DEBUG_DETAIL, "Unknown tag type %s", elem_type);
@@ -624,38 +597,52 @@ int get_tag_data_type(ab_tag_p tag, attr attribs)
         } else {
             /*
              * We have two cases
-             *      * tag listing, but only for LGX.
+             *      * tag listing, but only for CIP PLCs (but not for UDTs!).
              *      * no type, just elem_size.
              * Otherwise this is an error.
              */
-            {
-                int elem_size = attr_get_int(attribs, "elem_size", 0);
+            int elem_size = attr_get_int(attribs, "elem_size", 0);
+            int cip_plc = !!(tag->plc_type == AB_PLC_LGX || tag->plc_type == AB_PLC_MICRO800 || tag->plc_type == AB_PLC_OMRON_NJNX);
 
-                if(tag->plc_type == AB_PLC_LGX) {
-                    const char *tmp_tag_name = attr_get_str(attribs, "name", NULL);
-                    int tag_listing_rc = setup_tag_listing(tag, tmp_tag_name);
+            if(cip_plc) {
+                const char *tmp_tag_name = attr_get_str(attribs, "name", NULL);
+                int special_tag_rc = PLCTAG_STATUS_OK;
 
-                    if(tag_listing_rc == PLCTAG_ERR_BAD_PARAM) {
-                        pdebug(DEBUG_WARN, "Error parsing tag listing name!");
-                        return PLCTAG_ERR_BAD_PARAM;
-                    }
-                }
-
-                /* if we did not set an element size yet, set one. */
-                if(tag->elem_size == 0) {
-                    if(elem_size > 0) {
-                        pdebug(DEBUG_INFO, "Setting element size to %d.", elem_size);
-                        tag->elem_size = elem_size;
-                    }
-
-                    // else {
-                    //     pdebug(DEBUG_WARN, "You must set a element type or an element size!");
-                    //     return PLCTAG_ERR_BAD_PARAM;
+                /* check for special tags. */
+                if(str_cmp_i(tmp_tag_name, "@raw") == 0) {
+                    special_tag_rc = setup_raw_tag(tag);
+                } else if(str_str_cmp_i(tmp_tag_name, "@tags")) {
+                    // if(tag->plc_type != AB_PLC_OMRON_NJNX) {
+                        special_tag_rc = setup_tag_listing_tag(tag, tmp_tag_name);
+                    // } else {
+                    //     pdebug(DEBUG_WARN, "Tag listing is not supported for Omron PLCs.");
+                    //     special_tag_rc = PLCTAG_ERR_UNSUPPORTED;
                     // }
-                } else {
-                    if(elem_size > 0) {
-                        pdebug(DEBUG_WARN, "Tag has elem_size and either is a tag listing or has elem_type, only use one!");
-                    }
+                } else if(str_str_cmp_i(tmp_tag_name, "@udt/")) {
+                    // if(tag->plc_type != AB_PLC_OMRON_NJNX) {
+                        /* only supported on *Logix */
+                        special_tag_rc = setup_udt_tag(tag, tmp_tag_name);
+                    // } else {
+                    //     pdebug(DEBUG_WARN, "UDT listing is not supported for Omron PLCs.");
+                    //     special_tag_rc = PLCTAG_ERR_UNSUPPORTED;
+                    // }
+                } /* else not a special tag. */
+
+                if(special_tag_rc != PLCTAG_STATUS_OK) {
+                    pdebug(DEBUG_WARN, "Error parsing tag listing name!");
+                    return special_tag_rc;
+                }
+            }
+
+            /* if we did not set an element size yet, set one. */
+            if(tag->elem_size == 0) {
+                if(elem_size > 0) {
+                    pdebug(DEBUG_INFO, "Setting element size to %d.", elem_size);
+                    tag->elem_size = elem_size;
+                }
+            } else {
+                if(elem_size > 0) {
+                    pdebug(DEBUG_WARN, "Tag has elem_size and either is a tag listing or has elem_type, only use one!");
                 }
             }
         }
@@ -814,6 +801,9 @@ void ab_tag_destroy(ab_tag_p tag)
         return;
     }
 
+    /* abort anything in flight */
+    ab_tag_abort(tag);
+
     session = tag->session;
 
     /* tags should always have a session.  Release it. */
@@ -834,6 +824,11 @@ void ab_tag_destroy(ab_tag_p tag)
     if(tag->api_mutex) {
         mutex_destroy(&(tag->api_mutex));
         tag->api_mutex = NULL;
+    }
+
+    if(tag->tag_cond_wait) {
+        cond_destroy(&(tag->tag_cond_wait));
+        tag->tag_cond_wait = NULL;
     }
 
     if(tag->byte_order && tag->byte_order->is_allocated) {
@@ -908,7 +903,7 @@ plc_type_t get_plc_type(attr attribs)
         return AB_PLC_LGX_PCCC;
     } else if (!str_cmp_i(cpu_type, "micrologix800") || !str_cmp_i(cpu_type, "mlgx800") || !str_cmp_i(cpu_type, "micro800")) {
         pdebug(DEBUG_DETAIL,"Found Micro8xx PLC.");
-        return AB_PLC_MLGX800;
+        return AB_PLC_MICRO800;
     } else if (!str_cmp_i(cpu_type, "micrologix") || !str_cmp_i(cpu_type, "mlgx")) {
         pdebug(DEBUG_DETAIL,"Found MicroLogix PLC.");
         return AB_PLC_MLGX;
@@ -946,19 +941,32 @@ int check_cpu(ab_tag_p tag, attr attribs)
 int check_tag_name(ab_tag_p tag, const char* name)
 {
     int rc = PLCTAG_STATUS_OK;
+    pccc_addr_t pccc_address;
 
     if (!name) {
         pdebug(DEBUG_WARN,"No tag name parameter found!");
         return PLCTAG_ERR_BAD_PARAM;
     }
 
+    mem_set(&pccc_address, 0, sizeof(pccc_address));
+
     /* attempt to parse the tag name */
     switch (tag->plc_type) {
     case AB_PLC_PLC5:
     case AB_PLC_LGX_PCCC:
-        if ((rc = plc5_encode_tag_name(tag->encoded_name, &(tag->encoded_name_size), &(tag->file_type), name, MAX_TAG_NAME)) != PLCTAG_STATUS_OK) {
-            pdebug(DEBUG_WARN, "parse of PLC/5-style tag name %s failed!", name);
+        if((rc = parse_pccc_logical_address(name, &pccc_address))) {
+            pdebug(DEBUG_WARN, "Parse of PCCC-style tag name %s failed!", name);
+            return rc;
+        }
 
+        if(pccc_address.is_bit) {
+            tag->is_bit = 1;
+            tag->bit = (int)(unsigned int)pccc_address.bit;
+            pdebug(DEBUG_DETAIL, "PLC/5 address references bit %d.", tag->bit);
+        }
+
+        if((rc = plc5_encode_address(tag->encoded_name, &(tag->encoded_name_size), MAX_TAG_NAME, &pccc_address)) != PLCTAG_STATUS_OK) {
+            pdebug(DEBUG_WARN, "Encoding of PLC/5-style tag name %s failed!", name);
             return rc;
         }
 
@@ -966,15 +974,25 @@ int check_tag_name(ab_tag_p tag, const char* name)
 
     case AB_PLC_SLC:
     case AB_PLC_MLGX:
-        if ((rc = slc_encode_tag_name(tag->encoded_name, &(tag->encoded_name_size), &(tag->file_type), name, MAX_TAG_NAME)) != PLCTAG_STATUS_OK) {
-            pdebug(DEBUG_WARN, "parse of SLC-style tag name %s failed!", name);
+        if((rc = parse_pccc_logical_address(name, &pccc_address))) {
+            pdebug(DEBUG_WARN, "Parse of PCCC-style tag name %s failed!", name);
+            return rc;
+        }
 
+        if(pccc_address.is_bit) {
+            tag->is_bit = 1;
+            tag->bit = (int)(unsigned int)pccc_address.bit;
+            pdebug(DEBUG_DETAIL, "SLC/Micrologix address references bit %d.", tag->bit);
+        }
+
+        if ((rc = slc_encode_address(tag->encoded_name, &(tag->encoded_name_size), MAX_TAG_NAME, &pccc_address)) != PLCTAG_STATUS_OK) {
+            pdebug(DEBUG_WARN, "Encoding of SLC-style tag name %s failed!", name);
             return rc;
         }
 
         break;
 
-    case AB_PLC_MLGX800:
+    case AB_PLC_MICRO800:
     case AB_PLC_LGX:
     case AB_PLC_OMRON_NJNX:
         if ((rc = cip_encode_tag_name(tag, name)) != PLCTAG_STATUS_OK) {

@@ -78,6 +78,7 @@
 #define AB_EIP_CMD_FORWARD_OPEN_EX      ((uint8_t)0x5B)
 
 /* CIP embedded packet commands */
+#define AB_EIP_CMD_CIP_GET_ATTR_LIST    ((uint8_t)0x03)
 #define AB_EIP_CMD_CIP_MULTI            ((uint8_t)0x0A)
 #define AB_EIP_CMD_CIP_READ             ((uint8_t)0x4C)
 #define AB_EIP_CMD_CIP_WRITE            ((uint8_t)0x4D)
@@ -99,30 +100,13 @@
 #define AB_EIP_PCCC_TYPED_CMD ((uint8_t)0x0F)
 #define AB_EIP_PLC5_RANGE_READ_FUNC ((uint8_t)0x01)
 #define AB_EIP_PLC5_RANGE_WRITE_FUNC ((uint8_t)0x00)
+#define AB_EIP_PLC5_RMW_FUNC ((uint8_t)0x26)
 #define AB_EIP_PCCCLGX_TYPED_READ_FUNC ((uint8_t)0x68)
 #define AB_EIP_PCCCLGX_TYPED_WRITE_FUNC ((uint8_t)0x67)
 #define AB_EIP_SLC_RANGE_READ_FUNC ((uint8_t)0xA2)
 #define AB_EIP_SLC_RANGE_WRITE_FUNC ((uint8_t)0xAA)
+#define AB_EIP_SLC_RANGE_BIT_WRITE_FUNC ((uint8_t)0xAB)
 
-
-/* PCCC defs */
-/*
-#define AB_PCCC_DATA_OUTPUT         (0x82)
-#define AB_PCCC_DATA_INPUT          (0x83)
-#define AB_PCCC_DATA_STATUS         (0x84)
-#define AB_PCCC_DATA_BIT            (0x85)
-#define AB_PCCC_DATA_TIMER          (0x86)
-#define AB_PCCC_DATA_COUNTER        (0x87)
-#define AB_PCCC_DATA_CONTROL        (0x88)
-#define AB_PCCC_DATA_INT            (0x89)
-#define AB_PCCC_DATA_FLOAT          (0x8A)
-#define AB_PCCC_DATA_STRING         (0x8D)
-#define AB_PCCC_DATA_ASCII          (0x8E)
-#define AB_PCCC_DATA_LONG           (0x91)
-#define AB_PCCC_DATA_MSG            (0x92)
-#define AB_PCCC_DATA_PID            (0x93)
-#define AB_PCCC_DATA_PLS            (0x94)
-*/
 
 
 #define AB_PCCC_DATA_BIT            1
@@ -204,10 +188,10 @@
 //#define AB_PLC_PLC         (1)
 //#define AB_PLC_MLGX        (2)
 //#define AB_PLC_LGX         (3)
-//#define AB_PLC_MLGX800     (4)
+//#define AB_PLC_MICRO800     (4)
 //#define AB_PLC_LGX_PCCC    (5)
 
-typedef enum { AB_PLC_NONE = 0, AB_PLC_PLC5 = 1, AB_PLC_SLC, AB_PLC_MLGX, AB_PLC_LGX, AB_PLC_LGX_PCCC, AB_PLC_MLGX800, AB_PLC_OMRON_NJNX } plc_type_t;
+typedef enum { AB_PLC_NONE = 0, AB_PLC_PLC5 = 1, AB_PLC_SLC, AB_PLC_MLGX, AB_PLC_LGX, AB_PLC_LGX_PCCC, AB_PLC_MICRO800, AB_PLC_OMRON_NJNX } plc_type_t;
 
 
 /*********************************************************************

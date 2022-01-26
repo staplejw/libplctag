@@ -22,7 +22,7 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Set up build environment
-      run: sudo apt install build-essential cmake
+      run: sudo apt update; sudo apt install build-essential cmake
 
     - name: Create build directory
       run: rm -rf ${{ env.BUILD }}; mkdir -p ${{ env.BUILD }}
@@ -37,7 +37,7 @@ jobs:
       run: |
         cd ${{ env.DIST }}
         echo "start up simulator..."
-        ${{ env.DIST }}/ab_server --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000] &
+        ${{ env.DIST }}/ab_server --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000] --delay=50 &
         sleep 2
         echo "test simple get/set tag."
         ${{ env.DIST }}/simple
@@ -149,7 +149,7 @@ jobs:
       run: |
         cd ${{ env.DIST }}
         echo "start up simulator..."
-        ${{ env.DIST }}/ab_server --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000] &
+        ${{ env.DIST }}/ab_server --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000] --delay=50 &
         sleep 2
         echo "test simple get/set tag."
         ${{ env.DIST }}/simple
@@ -256,7 +256,7 @@ jobs:
       run: |
         cd ${{ env.DIST }}
         echo "start up simulator..."
-        ${{ env.DIST }}/ab_server --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000] &
+        ${{ env.DIST }}/ab_server --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000] --delay=50 &
         sleep 2
         echo "test simple get/set tag."
         ${{ env.DIST }}/simple
@@ -337,6 +337,34 @@ jobs:
         name: ${{ env.ARTIFACT }}
         path: ${{ env.DIST }}
 
+  macos_ARM64:
+
+    runs-on: macos-latest
+
+    env:
+      VERSION: "@VERSION@"
+      ARTIFACT: "libplctag_@VERSION@_macos_aarch64_EXPERIMENTAL"
+      BUILD: "${{ github.workspace }}/build"
+      DIST: "${{ github.workspace }}/build/bin_dist"
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Create build directory
+      run: rm -rf ${{ env.BUILD }}; mkdir -p ${{ env.BUILD }}
+
+    - name: Configure CMake
+      run: cd ${{ env.BUILD }}; cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 ..
+
+    - name: Build
+      run: cd ${{ env.BUILD }}; cmake --build .
+
+    - name: Upload ZIP artifact
+      uses: actions/upload-artifact@v1
+      with:
+        name: ${{ env.ARTIFACT }}
+        path: ${{ env.DIST }}
+
   windows_x64:
 
     runs-on: windows-latest
@@ -363,7 +391,7 @@ jobs:
       run: |
         cd ${{ env.DIST }}\Release
         echo "start up simulator..."
-        start /b .\ab_server.exe --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000]
+        start /b .\ab_server.exe --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000] --delay=50
         timeout /T 5
         echo "test simple get/set tag."
         .\simple
@@ -478,7 +506,7 @@ jobs:
       run: |
         cd ${{ env.DIST }}\Release
         echo "start up simulator..."
-        start /b .\ab_server.exe --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000]
+        start /b .\ab_server.exe --debug --plc=ControlLogix --path=1,0 --tag=TestBigArray:DINT[2000] --delay=50
         timeout /T 5
         echo "test simple get/set tag."
         .\simple
@@ -602,7 +630,7 @@ jobs:
 
     env:
       VERSION: "@VERSION@"
-      ARTIFACT: "libplctag_@VERSION@_windows_Arm64_EXPERIMENTAL"
+      ARTIFACT: "libplctag_@VERSION@_windows_Arm64"
       BUILD: "${{ github.workspace }}/build"
       DIST: "${{ github.workspace }}/build/bin_dist"
 
@@ -631,7 +659,7 @@ jobs:
 
     env:
       VERSION: "@VERSION@"
-      ARTIFACT: "libplctag_@VERSION@_linux_arm6hf_EXPERIMENTAL"
+      ARTIFACT: "libplctag_@VERSION@_linux_arm6hf"
       BUILD: "${{ github.workspace }}/build"
       DIST: "${{ github.workspace }}/build/bin_dist"
 
@@ -640,7 +668,7 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Set up build environment
-      run: sudo apt install build-essential cmake crossbuild-essential-armhf
+      run: sudo apt update; sudo apt install build-essential cmake crossbuild-essential-armhf
 
     - name: Create build directory
       run: rm -rf ${{ env.BUILD }}; mkdir -p ${{ env.BUILD }}
@@ -664,7 +692,7 @@ jobs:
 
     env:
       VERSION: "@VERSION@"
-      ARTIFACT: "libplctag_@VERSION@_linux_arm7l_EXPERIMENTAL"
+      ARTIFACT: "libplctag_@VERSION@_linux_arm7l"
       BUILD: "${{ github.workspace }}/build"
       DIST: "${{ github.workspace }}/build/bin_dist"
 
@@ -673,7 +701,7 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Set up build environment
-      run: sudo apt install build-essential cmake crossbuild-essential-armhf
+      run: sudo apt update; sudo apt install build-essential cmake crossbuild-essential-armhf
 
     - name: Create build directory
       run: rm -rf ${{ env.BUILD }}; mkdir -p ${{ env.BUILD }}
@@ -697,7 +725,7 @@ jobs:
 
     env:
       VERSION: "@VERSION@"
-      ARTIFACT: "libplctag_@VERSION@_linux_aarch64_EXPERIMENTAL"
+      ARTIFACT: "libplctag_@VERSION@_linux_aarch64"
       BUILD: "${{ github.workspace }}/build"
       DIST: "${{ github.workspace }}/build/bin_dist"
 
@@ -706,7 +734,7 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Set up build environment
-      run: sudo apt install build-essential cmake crossbuild-essential-arm64
+      run: sudo apt update; sudo apt install build-essential cmake crossbuild-essential-arm64
 
     - name: Create build directory
       run: rm -rf ${{ env.BUILD }}; mkdir -p ${{ env.BUILD }}

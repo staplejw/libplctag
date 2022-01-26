@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2020 by Kyle Hayes                                      *
+ *   Copyright (C) 2021 by Kyle Hayes                                      *
  *   Author Kyle Hayes  kyle.hayes@gmail.com                               *
  *                                                                         *
  * This software is available under either the Mozilla Public License      *
@@ -31,101 +31,110 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "../lib/libplctag.h"
 #include "utils.h"
 
-#define REQUIRED_VERSION 2,1,0
+#define REQUIRED_VERSION 2,4,0
 
-#define TAG_PATH "protocol=ab_eip&gateway=10.206.1.40&path=1,4&cpu=LGX&elem_count=10&name=TestDINTArray"
-#define ELEM_COUNT 10
-#define ELEM_SIZE 4
+#define TAG_STRING "protocol=ab-eip&gateway=10.206.1.40&path=1,4&plc=ControlLogix&name=@raw"
 #define DATA_TIMEOUT 5000
-
-/*
- * There really isn't much to this example other than it being compiled
- * by g++ instead of gcc.  This is just to test that the API functions are
- * correctly exported for C++ code.
- */
 
 
 int main()
 {
     int32_t tag = 0;
-    int rc;
-    int i;
+    int rc = PLCTAG_STATUS_OK;
+    int size = 0;
+    int version_major = plc_tag_get_int_attribute(0, "version_major", 0);
+    int version_minor = plc_tag_get_int_attribute(0, "version_minor", 0);
+    int version_patch = plc_tag_get_int_attribute(0, "version_patch", 0);
+    uint8_t raw_payload[] = { 0x55, /* list tags */
+                              0x03,
+                              0x20,
+                              0x6b,
+                              0x25,
+                              0x00,
+                              0x00,
+                              0x00,
+                              0x04,
+                              0x00,
+                              0x02,
+                              0x00,
+                              0x07,
+                              0x00,
+                              0x08,
+                              0x00,
+                              0x01,
+                              0x00 };
 
     /* check the library version. */
     if(plc_tag_check_lib_version(REQUIRED_VERSION) != PLCTAG_STATUS_OK) {
-        fprintf(stderr, "Required compatible library version %d.%d.%d not available!", REQUIRED_VERSION);
-        exit(1);
+        printf("Required compatible library version %d.%d.%d not available, found %d.%d.%d!\n", REQUIRED_VERSION, version_major, version_minor, version_patch);
+        return 1;
     }
+
+    plc_tag_set_debug_level(PLCTAG_DEBUG_DETAIL);
+
+    printf("Starting with library version %d.%d.%d.\n", version_major, version_minor, version_patch);
 
     /* create the tag */
-    tag = plc_tag_create(TAG_PATH, DATA_TIMEOUT);
-
-    /* everything OK? */
+    tag = plc_tag_create(TAG_STRING, DATA_TIMEOUT);
     if(tag < 0) {
-        fprintf(stderr,"ERROR %s: Could not create tag!\n", plc_tag_decode_error(tag));
-        return 0;
+        printf("ERROR %s: Could not create tag!\n", plc_tag_decode_error(tag));
+        return 1;
     }
 
-    if((rc = plc_tag_status(tag)) != PLCTAG_STATUS_OK) {
-        fprintf(stderr,"Error setting up tag internal state. Error %s\n", plc_tag_decode_error(rc));
+    /*
+     * Set the tag buffer size so that we can write the request.
+     * Note that this returns the old size (if any) or a negative error.
+     */
+    rc = plc_tag_set_size(tag, (int)(unsigned int)sizeof(raw_payload));
+    if(rc < 0) {
+        printf( "Unable to set the payload size on the tag %s!\n", plc_tag_decode_error(rc));
         plc_tag_destroy(tag);
-        return 0;
+        return 1;
     }
 
-    /* get the data */
-    rc = plc_tag_read(tag, DATA_TIMEOUT);
+    /* set up the raw data */
+    for(int i=0; i < (int)(unsigned int)sizeof(raw_payload) && rc == PLCTAG_STATUS_OK; i++) {
+        rc = plc_tag_set_uint8(tag, i, raw_payload[i]);
+    }
+
     if(rc != PLCTAG_STATUS_OK) {
-        fprintf(stderr,"ERROR: Unable to read the data! Got error code %d: %s\n",rc, plc_tag_decode_error(rc));
+        printf( "Unable to set the payload data in the tag %s!\n", plc_tag_decode_error(rc));
         plc_tag_destroy(tag);
-        return 0;
+        return 1;
     }
 
-    /* print out the data */
-    for(i=0; i < ELEM_COUNT; i++) {
-        fprintf(stderr,"data[%d]=%d\n",i,plc_tag_get_int32(tag,(i*ELEM_SIZE)));
-    }
-
-    /* now test a write */
-    for(i=0; i < ELEM_COUNT; i++) {
-        int32_t val = plc_tag_get_int32(tag,(i*ELEM_SIZE));
-
-        val = val+1;
-
-        fprintf(stderr,"Setting element %d to %d\n",i,val);
-
-        plc_tag_set_int32(tag,(i*ELEM_SIZE),val);
-    }
-
+    /* get the data, Write is the only action supported. */
     rc = plc_tag_write(tag, DATA_TIMEOUT);
-
     if(rc != PLCTAG_STATUS_OK) {
-        fprintf(stderr,"ERROR: Unable to write the data! Got error code %d: %s\n",rc, plc_tag_decode_error(rc));
+        printf("ERROR: Unable to send the raw request! Got error code %d: %s\n",rc, plc_tag_decode_error(rc));
         plc_tag_destroy(tag);
-        return 0;
+        return 1;
     }
 
-
-    /* get the data again*/
-    rc = plc_tag_read(tag, DATA_TIMEOUT);
-
-    if(rc != PLCTAG_STATUS_OK) {
-        fprintf(stderr,"ERROR: Unable to read the data! Got error code %d: %s\n",rc, plc_tag_decode_error(rc));
+    /* get the size of the returned data. */
+    size = plc_tag_get_size(tag);
+    if(size <= 0) {
+        printf("ERROR: Unable to get the data size!\n");
         plc_tag_destroy(tag);
-        return 0;
+        return 1;
     }
 
     /* print out the data */
-    for(i=0; i < ELEM_COUNT; i++) {
-        fprintf(stderr,"data[%d]=%d\n",i,plc_tag_get_int32(tag,(i*ELEM_SIZE)));
+    for(int i=0; i < size; i++) {
+        uint8_t data = plc_tag_get_uint8(tag, i);
+        printf("data[%d]=%u (%x)\n",i, (unsigned int)data, (unsigned int)data);
     }
 
-    /* we are done */
     plc_tag_destroy(tag);
+
+    printf("SUCCESS!\n");
 
     return 0;
 }

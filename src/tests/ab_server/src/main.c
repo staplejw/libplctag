@@ -164,7 +164,7 @@ int main(int argc, const char **argv)
     process_args(argc, argv, &plc);
 
     /* open a server connection and listen on the right port. */
-    server = tcp_server_create("0.0.0.0", "44818", server_buf, request_handler, &plc);
+    server = tcp_server_create("0.0.0.0", (plc.port_str ? plc.port_str : "44818"), server_buf, request_handler, &plc);
 
     tcp_server_start(server, &done);
 
@@ -176,11 +176,14 @@ int main(int argc, const char **argv)
 
 void usage(void)
 {
-    fprintf(stderr, "Usage: ab_server --plc=<plc_type> [--path=<path>] --tag=<tag>\n"
+    fprintf(stderr, "Usage: ab_server --plc=<plc_type> [--path=<path>] [--port=<port>] --tag=<tag>\n"
                     "   <plc type> = one of the CIP PLCs: \"ControlLogix\", \"Micro800\" or \"Omron\",\n"
                     "                or one of the PCCC PLCs: \"PLC/5\", \"SLC500\" or \"Micrologix\".\n"
                     "\n"
                     "   <path> = (required for ControlLogix) internal path to CPU in PLC.  E.g. \"1,0\".\n"
+                    "\n"
+                    "   <port> = (required for ControlLogix) internal path to CPU in PLC.  E.g. \"1,0\".\n"
+                    "            Defaults to 44818.\n"
                     "\n"
                     "    PCCC-based PLC tags are in the format: <file>[<size>] where:\n"
                     "        <file> is the data file, only the following are supported:\n"
@@ -312,30 +315,6 @@ void process_args(int argc, const char **argv, plc_s *plc)
                 plc->server_to_client_max_packet = 244;
                 needs_path = false;
                 has_plc = true;
-            } else if(str_cmp_i(&(argv[i][6]), "SLC500") == 0) {
-                fprintf(stderr, "Selecting SLC 500 simulator.\n");
-                plc->plc_type = PLC_SLC;
-                plc->path[0] = (uint8_t)0x20;
-                plc->path[1] = (uint8_t)0x02;
-                plc->path[2] = (uint8_t)0x24;
-                plc->path[3] = (uint8_t)0x01;
-                plc->path_len = 4;
-                plc->client_to_server_max_packet = 244;
-                plc->server_to_client_max_packet = 244;
-                needs_path = false;
-                has_plc = true;
-            } else if(str_cmp_i(&(argv[i][6]), "Micrologix") == 0) {
-                fprintf(stderr, "Selecting Micrologix simulator.\n");
-                plc->plc_type = PLC_MICROLOGIX;
-                plc->path[0] = (uint8_t)0x20;
-                plc->path[1] = (uint8_t)0x02;
-                plc->path[2] = (uint8_t)0x24;
-                plc->path[3] = (uint8_t)0x01;
-                plc->path_len = 4;
-                plc->client_to_server_max_packet = 244;
-                plc->server_to_client_max_packet = 244;
-                needs_path = false;
-                has_plc = true;
             } else {
                 fprintf(stderr, "Unsupported PLC type %s!\n", &(argv[i][6]));
                 usage();
@@ -345,6 +324,10 @@ void process_args(int argc, const char **argv, plc_s *plc)
         if(strncmp(argv[i],"--path=",7) == 0) {
             parse_path(&(argv[i][7]), plc);
             has_path = true;
+        }
+
+        if(strncmp(argv[i],"--port=",7) == 0) {
+            plc->port_str = &(argv[i][7]);
         }
 
         if(strncmp(argv[i],"--tag=",6) == 0) {
@@ -364,6 +347,13 @@ void process_args(int argc, const char **argv, plc_s *plc)
             if(plc) {
                 info("Setting reject ForwardOpen count to %d.", atoi(&argv[i][12]));
                 plc->reject_fo_count = atoi(&argv[i][12]);
+            }
+        }
+
+        if(strncmp(argv[i],"--delay=", 8) == 0) {
+            if(plc) {
+                info("Setting response delay to %dms.", atoi(&argv[i][8]));
+                plc->response_delay = atoi(&argv[i][8]);
             }
         }
     }
@@ -733,14 +723,23 @@ void parse_cip_tag(const char *tag_str, plc_s *plc)
  * request type handler.
  */
 
-slice_s request_handler(slice_s input, slice_s output, void *plc)
+slice_s request_handler(slice_s input, slice_s output, void *plc_arg)
 {
+    plc_s *plc = (plc_s*)plc_arg;
+
     /* check to see if we have a full packet. */
     if(slice_len(input) >= EIP_HEADER_SIZE) {
         uint16_t eip_len = slice_get_uint16_le(input, 2);
 
         if(slice_len(input) >= (size_t)(EIP_HEADER_SIZE + eip_len)) {
-            return eip_dispatch_request(input, output, (plc_s *)plc);
+            slice_s resp = eip_dispatch_request(input, output, plc);
+
+            /* if there is a response delay requested, then wait a bit. */
+            if(plc->response_delay > 0) {
+                util_sleep_ms(plc->response_delay);
+            }
+
+            return resp;
         }
     }
 

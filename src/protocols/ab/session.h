@@ -76,6 +76,8 @@ struct ab_session_t {
     uint8_t conn_path_size;
     uint16_t dhp_dest;
 
+    int connection_group_id;
+
     /* registration info */
     uint32_t session_handle;
 
@@ -97,11 +99,13 @@ struct ab_session_t {
     thread_p handler_thread;
     volatile int terminating;
     mutex_p mutex;
+    cond_p wait_cond;
 
     /* disconnect handling */
     int auto_disconnect_enabled;
     int auto_disconnect_timeout_ms;
 };
+
 
 struct ab_request_t {
     /* used to force interlocks with other threads. */

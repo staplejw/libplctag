@@ -2,7 +2,7 @@
 
 - [libplctag - a C library for PLC communication](#libplctag---a-c-library-for-plc-communication)
   - [WARNING - DISCLAIMER](#warning---disclaimer)
-  - [Get It!](#get-it)
+  - [Get It](#get-it)
   - [Features](#features)
     - [High Level Features](#high-level-features)
     - [Detailed Features](#detailed-features)
@@ -13,7 +13,7 @@
     - [How to Get The Code](#how-to-get-the-code)
     - [Example Code](#example-code)
     - [API](#api)
-  - [Help Wanted!](#help-wanted)
+  - [Help Wanted](#help-wanted)
     - [How to Contribute](#how-to-contribute)
   - [History](#history)
   - [Contact and Support](#contact-and-support)
@@ -27,15 +27,15 @@
 |   --:  |         :-:      |   :-:   |    :-:    |    :-:    |
 |Ubuntu  |   x86, Arm       | 18.04   | Supported | Supported |
 |Windows |   x86, Arm       |10 (Server 19) | Supported | Supported |
-|macOS   |       x86        |  10.15  | Supported | Not Supported |
+|macOS   |   x86, Arm       |  11  | Supported | Not Supported |
 
 ![libplctag CI](https://github.com/libplctag/libplctag/workflows/libplctag%20CI/badge.svg?branch=release)
 
-**libplctag** is an open source C library for Linux, Windows and macOS uses **EtherNet/IP** or **Modbus TCP** to read and write tags in PLCs.  The library has been in production since early 2012 and is used by multiple organizations for many tasks including controlling radio telescopes, large and precision manufacturing, controlling fitness equipment, food handling and many, many more.
+**libplctag** is an open source C library for Linux, Windows and macOS using **EtherNet/IP** or **Modbus TCP** to read and write tags in PLCs.  The library has been in production since early 2012 and is used by multiple organizations for many tasks including controlling radio telescopes, large and precision manufacturing, controlling fitness equipment, food handling and many, many more.
 
-Current Stable Version: 2.3
+Current Stable Version: 2.4
 
-Old Stable Version: 2.2
+Old Stable Version: 2.3
 
 ## WARNING - DISCLAIMER
 
@@ -45,7 +45,7 @@ We make no claims or warrants about the suitability of this code for any purpose
 
 Be careful!
 
-## Get It!
+## Get It
 
 Do you know what you want already?  Download it from the [releases page](https://github.com/libplctag/libplctag/releases)!
 
@@ -151,7 +151,7 @@ Most of the functions in the API are for data access.   Direct support for singl
 
 See the [API](https://github.com/libplctag/libplctag/wiki/API) for more information.
 
-## Help Wanted!
+## Help Wanted
 
 We need and welcome help with the following:
 

@@ -83,6 +83,12 @@ def defineStringFunc(name, args):
     func.argtypes = args
     return func
 
+def defineVoidFunc(name, args):
+    func = name
+    func.restype = None
+    func.argtypes = args
+    return func
+
 
 
 # Load the C library; should be platform independent.  This must
@@ -105,9 +111,14 @@ if system == "Windows":
         library = "./windows_x64/plctag.dll"
     else:
         library = "./windows_x86/plctag.dll"
+    # FIXME
+    lib_paths = [library]
 elif system == "Darwin":
     library = "./macos_x64/libplctag.dylib"
+    # FIXME
+    lib_paths = [library]
 elif system == "Linux":
+    fallback_library = "/usr"
     if platform.machine() == 'armv7l': # Android or Linux
         library = "./armeabi-v7a/libplctag.so"
     elif platform.machine().startswith('aarch64') or platform.machine().startswith('armv8'): # Android or Linux
@@ -116,11 +127,26 @@ elif system == "Linux":
         library = "./ubuntu_x64/libplctag.so"
     else:
         library = "./ubuntu_x86/libplctag.so"
+    # FIXME
+    lib_paths = [library, "/usr/lib/libplctag.so", "/usr/local/lib/libplctag.so"]
 else: # Java or some other
     pass
 
 if library != "":
-    lib = ctypes.cdll.LoadLibrary(library)
+    for library in lib_paths:
+
+        try:
+            lib = ctypes.cdll.LoadLibrary(library)
+            found = True
+        except:
+            found = False
+
+        if found:
+            break
+
+    if not found:
+        print ("Unable to find library in paths %s" % (', '.join(lib_paths)))
+        exit(-1)
 
 # Create the tag functions below
 
@@ -128,6 +154,7 @@ plcTagCheckLibVersion = defineIntFunc(lib.plc_tag_check_lib_version, [ctypes.c_i
 plcTagGetIntAttribute = defineIntFunc(lib.plc_tag_get_int_attribute, [ctypes.c_int, ctypes.c_char_p, ctypes.c_int])
 plcTagSetIntAttribute = defineIntFunc(lib.plc_tag_set_int_attribute, [ctypes.c_int, ctypes.c_char_p, ctypes.c_int])
 plcTagDecodeError = defineStringFunc(lib.plc_tag_decode_error, [ctypes.c_int])
+plcTagSetDebugLevel = defineVoidFunc(lib.plc_tag_set_debug_level, [ctypes.c_int])
 plcTagCreate  = defineIntFunc(lib.plc_tag_create, [ctypes.c_char_p, ctypes.c_int])
 plcTagLock    = defineIntFunc(lib.plc_tag_lock, [ctypes.c_int])
 plcTagUnlock  = defineIntFunc(lib.plc_tag_unlock, [ctypes.c_int])
@@ -237,7 +264,7 @@ def plc_tag_check_lib_version(req_major, req_minor, req_patch):
 # 'size', 'read_cache_ms', 'auto_sync_read_ms', 'auto_sync_write_ms'
 #
 def plc_tag_get_int_attribute(id, attrib_name, default_value):
-    return plcTagGetIntAttribute(id, attrib_name, default_value)
+    return plcTagGetIntAttribute(id, attrib_name.encode('utf-8'), default_value)
 
 
 # plc_tag_set_int_attribute
@@ -249,7 +276,7 @@ def plc_tag_get_int_attribute(id, attrib_name, default_value):
 # 'read_cache_ms', 'auto_sync_read_ms', 'auto_sync_write_ms'
 #
 def plc_tag_set_int_attribute(id, attrib_name, new_value):
-    return plcTagSetIntAttribute(id, attrib_name, new_value)
+    return plcTagSetIntAttribute(id, attrib_name.encode('utf-8'), new_value)
 
 
 # plc_tag_decode_error
@@ -258,6 +285,15 @@ def plc_tag_set_int_attribute(id, attrib_name, new_value):
 #
 def plc_tag_decode_error(errCode):
     return plcTagDecodeError(errCode)
+
+
+# plc_tag_set_debug_level
+#
+# Set the library debug level to the passed value.
+#
+def plc_tag_set_debug_level(newLevel):
+    plcTagSetDebugLevel(newLevel)
+    # void return value
 
 
 # plc_tag_create
@@ -272,7 +308,7 @@ def plc_tag_decode_error(errCode):
 #
 def plc_tag_create(attributeString, timeout):
     #print ("Creating tag with attributes '%s' and timeout %d" % (attributeString, timeout))
-    return plcTagCreate(attributeString, timeout)
+    return plcTagCreate(attributeString.encode('utf-8'), timeout)
 
 
 # plc_tag_lock

@@ -57,6 +57,7 @@ struct tag_vtable_t system_tag_vtable = {
     /* status */    system_tag_status,
     /* tickler */   NULL,
     /* write */     system_tag_write,
+    /* wake_plc */  (tag_vtable_func)NULL,
 
     /* data accessors */
 
@@ -90,6 +91,7 @@ tag_byte_order_t system_tag_byte_order = {
 
 plc_tag_p system_tag_create(attr attribs)
 {
+    int rc = PLCTAG_STATUS_OK;
     system_tag_p tag = NULL;
     const char *name = attr_get_str(attribs, "name", NULL);
 
@@ -120,6 +122,14 @@ plc_tag_p system_tag_create(attr attribs)
      * in case we need to abort later.
      */
     tag->vtable = &system_tag_vtable;
+
+    /* set up the generic parts. */
+    rc = plc_tag_generic_init_tag((plc_tag_p)tag, attribs);
+    if(rc != PLCTAG_STATUS_OK) {
+        pdebug(DEBUG_WARN, "Unable to initialize generic tag parts!");
+        rc_dec(tag);
+        return (plc_tag_p)NULL;
+    }
 
     /* set the byte order. */
     tag->byte_order = &system_tag_byte_order;
@@ -162,6 +172,10 @@ static void system_tag_destroy(plc_tag_p ptag)
         mutex_destroy(&ptag->api_mutex);
     }
 
+    if(ptag->tag_cond_wait) {
+        cond_destroy(&ptag->tag_cond_wait);
+    }
+
     if(tag->byte_order && tag->byte_order->is_allocated) {
         mem_free(tag->byte_order);
         tag->byte_order = NULL;
@@ -174,6 +188,7 @@ static void system_tag_destroy(plc_tag_p ptag)
 static int system_tag_read(plc_tag_p ptag)
 {
     system_tag_p tag = (system_tag_p)ptag;
+    int rc = PLCTAG_STATUS_OK;
 
     pdebug(DEBUG_INFO,"Starting.");
 
@@ -185,20 +200,26 @@ static int system_tag_read(plc_tag_p ptag)
         pdebug(DEBUG_DETAIL,"Version is %s",VERSION);
         str_copy((char *)(&tag->data[0]), MAX_SYSTEM_TAG_SIZE , VERSION);
         tag->data[str_length(VERSION)] = 0;
-        return PLCTAG_STATUS_OK;
-    }
-
-    if(str_cmp_i(&tag->name[0],"debug") == 0) {
+        rc = PLCTAG_STATUS_OK;
+    } else if(str_cmp_i(&tag->name[0],"debug") == 0) {
         int debug_level = get_debug_level();
         tag->data[0] = (uint8_t)(debug_level & 0xFF);
         tag->data[1] = (uint8_t)((debug_level >> 8) & 0xFF);
         tag->data[2] = (uint8_t)((debug_level >> 16) & 0xFF);
         tag->data[3] = (uint8_t)((debug_level >> 24) & 0xFF);
-        return PLCTAG_STATUS_OK;
+        rc = PLCTAG_STATUS_OK;
+    } else {
+        pdebug(DEBUG_WARN, "Unsupported system tag %s!", tag->name);
+        rc = PLCTAG_ERR_UNSUPPORTED;
     }
 
-    pdebug(DEBUG_WARN,"Unknown system tag %s", tag->name);
-    return PLCTAG_ERR_UNSUPPORTED;
+    if(tag->callback) {
+        tag->callback(tag->tag_id, PLCTAG_EVENT_READ_COMPLETED, rc);
+    }
+
+    pdebug(DEBUG_INFO,"Done.");
+
+    return rc;
 }
 
 
@@ -211,6 +232,7 @@ static int system_tag_status(plc_tag_p tag)
 
 static int system_tag_write(plc_tag_p ptag)
 {
+    int rc = PLCTAG_STATUS_OK;
     system_tag_p tag = (system_tag_p)ptag;
 
     if(!tag) {
@@ -218,10 +240,6 @@ static int system_tag_write(plc_tag_p ptag)
     }
 
     /* the version is static */
-    if(str_cmp_i(&tag->name[0],"version") == 0) {
-        return PLCTAG_ERR_NOT_IMPLEMENTED;
-    }
-
     if(str_cmp_i(&tag->name[0],"debug") == 0) {
         int res = 0;
         res = (int32_t)(((uint32_t)(tag->data[0])) +
@@ -229,10 +247,20 @@ static int system_tag_write(plc_tag_p ptag)
                         ((uint32_t)(tag->data[2]) << 16) +
                         ((uint32_t)(tag->data[3]) << 24));
         set_debug_level(res);
-        return PLCTAG_STATUS_OK;
+        rc = PLCTAG_STATUS_OK;
+    } else if(str_cmp_i(&tag->name[0],"version") == 0) {
+        rc = PLCTAG_ERR_NOT_IMPLEMENTED;
+    } else {
+        pdebug(DEBUG_WARN, "Unsupported system tag %s!", tag->name);
+        rc = PLCTAG_ERR_UNSUPPORTED;
     }
 
-    pdebug(DEBUG_WARN,"Unknown system tag %s", tag->name);
-    return PLCTAG_ERR_NOT_IMPLEMENTED;
+    if(tag->callback) {
+        tag->callback(tag->tag_id, PLCTAG_EVENT_WRITE_COMPLETED, rc);
+    }
+
+    pdebug(DEBUG_INFO,"Done.");
+
+    return rc;
 }
 

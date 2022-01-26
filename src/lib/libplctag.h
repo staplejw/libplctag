@@ -53,7 +53,11 @@ extern "C" {
         #define LIB_EXPORT __declspec(dllimport)
     #endif
 #else
-    #define LIB_EXPORT extern
+    #ifdef LIBPLCTAGDLL_EXPORTS
+        #define LIB_EXPORT __attribute__ ((visibility ("default")))
+    #else
+        #define LIB_EXPORT extern
+    #endif
 #endif
 
 
@@ -259,6 +263,8 @@ LIB_EXPORT void plc_tag_shutdown(void);
 
 #define PLCTAG_EVENT_DESTROYED          (6)
 
+#define PLCTAG_EVENT_MAX                (PLCTAG_EVENT_DESTROYED + 1)
+
 LIB_EXPORT int plc_tag_register_callback(int32_t tag_id, void (*tag_callback_func)(int32_t tag_id, int event, int status));
 
 
@@ -439,6 +445,8 @@ LIB_EXPORT int plc_tag_get_int_attribute(int32_t tag, const char *attrib_name, i
 LIB_EXPORT int plc_tag_set_int_attribute(int32_t tag, const char *attrib_name, int new_value);
 
 LIB_EXPORT int plc_tag_get_size(int32_t tag);
+/* return the old size or negative for errors. */
+LIB_EXPORT int plc_tag_set_size(int32_t tag, int new_size);
 
 LIB_EXPORT int plc_tag_get_bit(int32_t tag, int offset_bit);
 LIB_EXPORT int plc_tag_set_bit(int32_t tag, int offset_bit, int val);

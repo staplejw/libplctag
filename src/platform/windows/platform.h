@@ -150,6 +150,7 @@ extern int mem_cmp(void *src1, int src1_size, void *src2, int src2_size);
 extern int str_cmp(const char *first, const char *second);
 extern int str_cmp_i(const char *first, const char *second);
 extern int str_cmp_i_n(const char *first, const char *second, int num_chars);
+extern char* str_str_cmp_i(const char* haystack, const char* needle);
 extern int str_copy(char *dst, int dst_size, const char *src);
 extern int str_length(const char *str);
 extern char *str_dup(const char *str);
@@ -177,7 +178,7 @@ extern int mutex_unlock_impl(const char *func, int line_num, mutex_p m);
 #endif
 
 #define mutex_lock(m) mutex_lock_impl(__func__, __LINE__, m)
-#define mutex_try_lock(m) mutex_lock_impl(__func__, __LINE__, m)
+#define mutex_try_lock(m) mutex_try_lock_impl(__func__, __LINE__, m)
 #define mutex_unlock(m) mutex_unlock_impl(__func__, __LINE__, m)
 
 /* macros are evil */
@@ -236,14 +237,43 @@ extern int lock_acquire_try(lock_t *lock);
 extern int lock_acquire(lock_t *lock);
 extern void lock_release(lock_t *lock);
 
+
+/* condition variables */
+typedef struct cond_t* cond_p;
+extern int cond_create(cond_p * c);
+extern int cond_wait_impl(const char *func, int line_num, cond_p c, int timeout_ms);
+extern int cond_signal_impl(const char *func, int line_num, cond_p c);
+extern int cond_clear_impl(const char *func, int line_num, cond_p c);
+extern int cond_destroy(cond_p *c);
+
+#define cond_wait(c, t) cond_wait_impl(__func__, __LINE__, c, t)
+#define cond_signal(c) cond_signal_impl(__func__, __LINE__, c)
+#define cond_clear(c) cond_clear_impl(__func__, __LINE__, c)
+
 /* socket functions */
 typedef struct sock_t *sock_p;
+typedef enum {
+    SOCK_EVENT_NONE         = 0,
+    SOCK_EVENT_TIMEOUT      = (1 << 0),
+    SOCK_EVENT_DISCONNECT   = (1 << 1),
+    SOCK_EVENT_ERROR        = (1 << 2),
+    SOCK_EVENT_CAN_READ     = (1 << 3),
+    SOCK_EVENT_CAN_WRITE    = (1 << 4),
+    SOCK_EVENT_WAKE_UP      = (1 << 5),
+    SOCK_EVENT_CONNECT      = (1 << 6),
+
+    SOCK_EVENT_DEFAULT_MASK = (SOCK_EVENT_TIMEOUT | SOCK_EVENT_DISCONNECT | SOCK_EVENT_ERROR | SOCK_EVENT_WAKE_UP)
+} sock_event_t;
 extern int socket_create(sock_p *s);
-extern int socket_connect_tcp(sock_p s, const char *host, int port);
-extern int socket_read(sock_p s, uint8_t *buf, int size);
-extern int socket_write(sock_p s, uint8_t *buf, int size);
+extern int socket_connect_tcp_start(sock_p s, const char *host, int port);
+extern int socket_connect_tcp_check(sock_p s, int timeout_ms);
+extern int socket_wait_event(sock_p sock, int events, int timeout_ms);
+extern int socket_wake(sock_p sock);
+extern int socket_read(sock_p s, uint8_t *buf, int size, int timeout_ms);
+extern int socket_write(sock_p s, uint8_t *buf, int size, int timeout_ms);
 extern int socket_close(sock_p s);
 extern int socket_destroy(sock_p *s);
+
 
 /* serial handling */
 typedef struct serial_port_t *serial_port_p;
