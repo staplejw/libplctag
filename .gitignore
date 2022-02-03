@@ -14,6 +14,7 @@ cmake-build*
 *.aps
 *.pch
 .vscod*/*
+.vs/*
 build_win/*
 *.vspscc
 *.vssscc
@@ -54,5 +55,4 @@ temp.c
 /.vs/libplctag/v16/Browse.VC.opendb
 /out/build/x64-Debug
 /out/build/ARM64
-/CMakeSettings.json
 build/*
